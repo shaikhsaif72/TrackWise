@@ -10,9 +10,8 @@ import Dashboard from './pages/Dashboard';
 import Wallets from './pages/Wallets';
 import Transactions from './pages/Transactions';
 import Budgets from './pages/Budgets';
-import Analytics from './pages/Analytics';
+import Analytics from './pages/analytics';
 import Profile from './pages/Profile';
-import Tasks from './pages/Tasks';
 
 function App() {
   return (
@@ -34,7 +33,6 @@ function App() {
             <Route path="budgets" element={<Budgets />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="profile" element={<Profile />} />
-            <Route path="tasks" element={<Tasks />} />
           </Route>
           
           <Route path="*" element={<Navigate to="/login" replace />} />

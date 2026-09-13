@@ -9,7 +9,6 @@ const links = [
   { name: 'Transactions', path: '/transactions', icon: ReceiptText },
   { name: 'Budgets', path: '/budgets', icon: Target },
   { name: 'Analytics', path: '/analytics', icon: PieChart },
-  { name: 'Tasks', path: '/tasks', icon: CheckSquare },
   { name: 'Profile', path: '/profile', icon: User },
 ];
 
