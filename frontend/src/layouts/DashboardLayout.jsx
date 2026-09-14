@@ -8,9 +8,14 @@ export default function DashboardLayout() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
+
       <div className="flex-1 flex flex-col lg:ml-64 transition-all duration-300">
         <Navbar onMenuClick={() => setSidebarOpen(true)} />
+
         <main className="flex-1 p-4 lg:p-8 overflow-auto">
           <Outlet />
         </main>

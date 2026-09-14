@@ -1,4 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useState
+} from 'react';
+
 import { financeService } from '../services/financeService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorMessage from '../components/ErrorMessage';
@@ -14,12 +19,8 @@ import {
   PieChart,
   Pie,
   Cell,
-  Legend,
+  Legend
 } from 'recharts';
-
-/* --------------------------------------------------
-   CHART COLORS
--------------------------------------------------- */
 
 const COLORS = [
   '#3b82f6',
@@ -29,12 +30,12 @@ const COLORS = [
   '#8b5cf6',
   '#ec4899',
   '#06b6d4',
-  '#84cc16',
+  '#84cc16'
 ];
 
-/* --------------------------------------------------
-   CURRENCY FORMATTER
--------------------------------------------------- */
+// ==================================================
+// CURRENCY FORMATTER
+// ==================================================
 
 const formatCurrency = (amount) => {
   const numericAmount = Number(amount || 0);
@@ -42,23 +43,25 @@ const formatCurrency = (amount) => {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 2
   }).format(numericAmount);
 };
 
-/* --------------------------------------------------
-   NUMBER HELPER
--------------------------------------------------- */
+// ==================================================
+// NUMBER HELPER
+// ==================================================
 
 const toNumber = (value) => {
   const number = Number(value || 0);
 
-  return Number.isFinite(number) ? number : 0;
+  return Number.isFinite(number)
+    ? number
+    : 0;
 };
 
-/* --------------------------------------------------
-   NORMALIZE MONTHLY DATA
--------------------------------------------------- */
+// ==================================================
+// NORMALIZE MONTHLY DATA
+// ==================================================
 
 const normalizeMonthlyData = (monthlyData) => {
   if (!Array.isArray(monthlyData)) {
@@ -89,13 +92,13 @@ const normalizeMonthlyData = (monthlyData) => {
         item?.totalExpense ??
         item?.debit ??
         0
-    ),
+    )
   }));
 };
 
-/* --------------------------------------------------
-   NORMALIZE CATEGORY DATA
--------------------------------------------------- */
+// ==================================================
+// NORMALIZE CATEGORY DATA
+// ==================================================
 
 const normalizeCategoryData = (categoryData) => {
   if (!Array.isArray(categoryData)) {
@@ -119,53 +122,64 @@ const normalizeCategoryData = (categoryData) => {
           item?.total_expense ??
           item?.totalExpense ??
           0
-      ),
+      )
     }))
     .filter((item) => item.value > 0);
 };
 
-/* --------------------------------------------------
-   MAIN COMPONENT
--------------------------------------------------- */
+// ==================================================
+// MAIN COMPONENT
+// ==================================================
 
 export default function Analytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  /* --------------------------------------------------
-     LOAD ANALYTICS
-  -------------------------------------------------- */
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState('');
+  const [reportSuccess, setReportSuccess] = useState('');
+
+  // ==================================================
+  // LOAD ANALYTICS
+  // ==================================================
+
+  const loadAnalytics = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const analyticsData =
+        await financeService.getAnalytics();
+
+      setData(analyticsData || {});
+    } catch (err) {
+      console.error(
+        'ANALYTICS LOAD ERROR:',
+        err
+      );
+
+      setError(
+        err?.response?.data?.message ||
+          err?.response?.data?.error?.message ||
+          err?.response?.data?.error ||
+          'Failed to load analytics.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadAnalytics = async () => {
-      try {
-        setLoading(true);
-        setError('');
-
-        const analyticsData =
-          await financeService.getAnalytics();
-
-        setData(analyticsData || {});
-      } catch (err) {
-        console.error('ANALYTICS LOAD ERROR:', err);
-
-        setError(
-          err?.response?.data?.message ||
-            err?.response?.data?.error ||
-            'Failed to load analytics.'
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadAnalytics();
   }, []);
 
-  /* --------------------------------------------------
-     NORMALIZED DATA
-  -------------------------------------------------- */
+  // ==================================================
+  // NORMALIZED DATA
+  // ==================================================
 
   const monthlyData = useMemo(() => {
     return normalizeMonthlyData(data?.monthly);
@@ -175,22 +189,19 @@ export default function Analytics() {
     return normalizeCategoryData(data?.categories);
   }, [data]);
 
-  /* --------------------------------------------------
-     CALCULATE SUMMARY
-  -------------------------------------------------- */
+  // ==================================================
+  // CALCULATE SUMMARY
+  // ==================================================
 
   const summary = useMemo(() => {
-    /*
-      If backend directly sends summary values,
-      use them first.
-    */
-
-    const directIncome = data?.total_income ??
+    const directIncome =
+      data?.total_income ??
       data?.totalIncome ??
       data?.summary?.total_income ??
       data?.summary?.totalIncome;
 
-    const directExpense = data?.total_expense ??
+    const directExpense =
+      data?.total_expense ??
       data?.total_expenses ??
       data?.totalExpense ??
       data?.totalExpenses ??
@@ -235,13 +246,82 @@ export default function Analytics() {
       totalIncome,
       totalExpense,
       netBalance,
-      savingsRate,
+      savingsRate
     };
-  }, [data, monthlyData, categoryData]);
+  }, [
+    data,
+    monthlyData,
+    categoryData
+  ]);
 
-  /* --------------------------------------------------
-     LOADING STATE
-  -------------------------------------------------- */
+  // ==================================================
+  // DOWNLOAD PDF REPORT
+  // ==================================================
+
+  const handleDownloadReport = async () => {
+    setReportError('');
+    setReportSuccess('');
+
+    if (!startDate || !endDate) {
+      setReportError(
+        'Please select both start date and end date.'
+      );
+      return;
+    }
+
+    if (startDate > endDate) {
+      setReportError(
+        'Start date cannot be greater than end date.'
+      );
+      return;
+    }
+
+    try {
+      setReportLoading(true);
+
+      const pdfBlob =
+        await financeService.downloadReportPdf(
+          startDate,
+          endDate
+        );
+
+      const blobUrl = window.URL.createObjectURL(
+        pdfBlob
+      );
+
+      const downloadLink =
+        document.createElement('a');
+
+      downloadLink.href = blobUrl;
+      downloadLink.download =
+        `trackwise_report_${startDate}_${endDate}.pdf`;
+
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+
+      window.URL.revokeObjectURL(blobUrl);
+
+      setReportSuccess(
+        'Financial PDF report downloaded successfully.'
+      );
+    } catch (err) {
+      console.error(
+        'PDF REPORT ERROR:',
+        err
+      );
+
+      setReportError(
+        'Unable to generate PDF report. Please try again.'
+      );
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  // ==================================================
+  // LOADING STATE
+  // ==================================================
 
   if (loading) {
     return (
@@ -251,14 +331,21 @@ export default function Analytics() {
     );
   }
 
-  /* --------------------------------------------------
-     ERROR STATE
-  -------------------------------------------------- */
+  // ==================================================
+  // ERROR STATE
+  // ==================================================
 
   if (error) {
     return (
       <div className="p-4 md:p-6">
         <ErrorMessage message={error} />
+
+        <button
+          onClick={loadAnalytics}
+          className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          Try Again
+        </button>
       </div>
     );
   }
@@ -271,13 +358,13 @@ export default function Analytics() {
     );
   }
 
-  /* --------------------------------------------------
-     UI
-  -------------------------------------------------- */
-
   return (
     <div className="space-y-6 p-4 md:p-6">
+
+      {/* ================================================== */}
       {/* PAGE HEADER */}
+      {/* ================================================== */}
+
       <div>
         <h1 className="text-2xl font-bold text-slate-900">
           Financial Analytics
@@ -288,7 +375,10 @@ export default function Analytics() {
         </p>
       </div>
 
+      {/* ================================================== */}
       {/* DEMO DATA MESSAGE */}
+      {/* ================================================== */}
+
       {data.isDemo && (
         <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-700">
           Showing demo data. Integrate the analytics backend
@@ -296,8 +386,96 @@ export default function Analytics() {
         </div>
       )}
 
+      {/* ================================================== */}
+      {/* PDF REPORT CARD */}
+      {/* ================================================== */}
+
+      <div className="rounded-xl border border-purple-100 bg-white p-5 shadow-sm md:p-6">
+        <div className="mb-5">
+          <h2 className="text-lg font-semibold text-slate-800">
+            Generate Financial PDF Report
+          </h2>
+
+          <p className="mt-1 text-sm text-gray-500">
+            Select a date range to download your transaction report.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div>
+            <label
+              htmlFor="startDate"
+              className="mb-2 block text-sm font-medium text-gray-700"
+            >
+              Start Date
+            </label>
+
+            <input
+              id="startDate"
+              type="date"
+              value={startDate}
+              onChange={(event) => {
+                setStartDate(event.target.value);
+                setReportError('');
+                setReportSuccess('');
+              }}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="endDate"
+              className="mb-2 block text-sm font-medium text-gray-700"
+            >
+              End Date
+            </label>
+
+            <input
+              id="endDate"
+              type="date"
+              value={endDate}
+              onChange={(event) => {
+                setEndDate(event.target.value);
+                setReportError('');
+                setReportSuccess('');
+              }}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+
+          <div className="flex items-end">
+            <button
+              onClick={handleDownloadReport}
+              disabled={reportLoading}
+              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {reportLoading
+                ? 'Generating PDF...'
+                : 'Download PDF'}
+            </button>
+          </div>
+        </div>
+
+        {reportError && (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {reportError}
+          </div>
+        )}
+
+        {reportSuccess && (
+          <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            {reportSuccess}
+          </div>
+        )}
+      </div>
+
+      {/* ================================================== */}
       {/* SUMMARY CARDS */}
+      {/* ================================================== */}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
         {/* TOTAL INCOME */}
         <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
@@ -395,8 +573,12 @@ export default function Analytics() {
         </div>
       </div>
 
+      {/* ================================================== */}
       {/* CHARTS */}
+      {/* ================================================== */}
+
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+
         {/* MONTHLY INCOME VS EXPENSES */}
         <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm md:p-6">
           <h2 className="mb-6 text-lg font-semibold text-slate-800">
@@ -415,7 +597,7 @@ export default function Analytics() {
                     top: 5,
                     right: 10,
                     left: -15,
-                    bottom: 5,
+                    bottom: 5
                   }}
                 >
                   <CartesianGrid
@@ -430,7 +612,7 @@ export default function Analytics() {
                     tickLine={false}
                     tick={{
                       fill: '#6b7280',
-                      fontSize: 12,
+                      fontSize: 12
                     }}
                   />
 
@@ -439,7 +621,7 @@ export default function Analytics() {
                     tickLine={false}
                     tick={{
                       fill: '#6b7280',
-                      fontSize: 12,
+                      fontSize: 12
                     }}
                   />
 
@@ -448,13 +630,13 @@ export default function Analytics() {
                       formatCurrency(value)
                     }
                     cursor={{
-                      fill: '#f9fafb',
+                      fill: '#f9fafb'
                     }}
                     contentStyle={{
                       borderRadius: '8px',
                       border: 'none',
                       boxShadow:
-                        '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                        '0 4px 6px -1px rgb(0 0 0 / 0.1)'
                     }}
                   />
 
@@ -526,7 +708,7 @@ export default function Analytics() {
                       borderRadius: '8px',
                       border: 'none',
                       boxShadow:
-                        '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                        '0 4px 6px -1px rgb(0 0 0 / 0.1)'
                     }}
                   />
 
@@ -542,7 +724,10 @@ export default function Analytics() {
         </div>
       </div>
 
+      {/* ================================================== */}
       {/* CATEGORY-WISE SPENDING LIST */}
+      {/* ================================================== */}
+
       <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm md:p-6">
         <div className="mb-5 flex items-center justify-between">
           <div>
@@ -584,7 +769,7 @@ export default function Analytics() {
                           className="h-3 w-3 shrink-0 rounded-full"
                           style={{
                             backgroundColor:
-                              COLORS[index % COLORS.length],
+                              COLORS[index % COLORS.length]
                           }}
                         />
 
@@ -613,7 +798,7 @@ export default function Analytics() {
                             100
                           )}%`,
                           backgroundColor:
-                            COLORS[index % COLORS.length],
+                            COLORS[index % COLORS.length]
                         }}
                       />
                     </div>

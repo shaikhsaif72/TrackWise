@@ -1,9 +1,41 @@
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, send_file
+
 from collections import defaultdict
 from decimal import Decimal
+from datetime import datetime
+from io import BytesIO
+from pathlib import Path
+from xml.sax.saxutils import escape
+
+# ==================================================
+# REPORTLAB IMPORTS
+# ==================================================
+
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+)
+
+# ==================================================
+# AUTH IMPORT
+# ==================================================
 
 from app.core.auth import require_auth
 from app.core.constants import MISSING
+
+# ==================================================
+# SCHEMA IMPORTS
+# ==================================================
 
 from app.modules.finance.schemas import (
     WalletCreateSchema,
@@ -20,11 +52,19 @@ from app.modules.finance.schemas import (
     BudgetResponseSchema,
 )
 
+# ==================================================
+# SERVICE IMPORTS
+# ==================================================
+
 from app.modules.finance.services.wallet_service import WalletService
 from app.modules.finance.services.category_service import CategoryService
 from app.modules.finance.services.transaction_service import TransactionService
 from app.modules.finance.services.budget_service import BudgetService
 
+
+# ==================================================
+# BLUEPRINT
+# ==================================================
 
 finance_bp = Blueprint(
     "finance",
@@ -34,12 +74,63 @@ finance_bp = Blueprint(
 
 
 # ==================================================
-# WALLET ROUTES
+# PDF FONT CONFIGURATION
 # ==================================================
 
-# --------------------------------------------------
-# GET ALL WALLETS
-# --------------------------------------------------
+# routes.py location:
+# TrackWise/app/modules/finance/routes.py
+#
+# parents[0] = finance
+# parents[1] = modules
+# parents[2] = app
+# parents[3] = TrackWise project root
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+FONT_PATH = PROJECT_ROOT / "fonts" / "DejaVuSans.ttf"
+
+REPORT_FONT_NAME = "Helvetica"
+
+if FONT_PATH.exists():
+    try:
+        pdfmetrics.registerFont(
+            TTFont(
+                "DejaVuSans",
+                str(FONT_PATH)
+            )
+        )
+
+        REPORT_FONT_NAME = "DejaVuSans"
+
+        print(
+            "PDF FONT LOADED:",
+            str(FONT_PATH)
+        )
+
+    except Exception as font_error:
+        print(
+            "PDF FONT LOAD ERROR:",
+            repr(font_error)
+        )
+
+else:
+    print(
+        "WARNING: DejaVuSans.ttf not found at:",
+        str(FONT_PATH)
+    )
+
+
+# Use actual rupee symbol only when Unicode font is available.
+# Otherwise use INR to avoid black square rendering.
+REPORT_CURRENCY_PREFIX = (
+    "₹ " if REPORT_FONT_NAME == "DejaVuSans"
+    else "INR "
+)
+
+
+# ==================================================
+# WALLET ROUTES
+# ==================================================
 
 @finance_bp.route("/wallets", methods=["GET"])
 @require_auth
@@ -58,7 +149,10 @@ def get_wallets():
         }), 200
 
     except Exception as e:
-        print("GET WALLETS ERROR:", repr(e))
+        print(
+            "GET WALLETS ERROR:",
+            repr(e)
+        )
 
         return jsonify({
             "error": {
@@ -66,10 +160,6 @@ def get_wallets():
             }
         }), 400
 
-
-# --------------------------------------------------
-# CREATE WALLET
-# --------------------------------------------------
 
 @finance_bp.route("/wallets", methods=["POST"])
 @require_auth
@@ -94,7 +184,10 @@ def create_wallet():
         }), 201
 
     except Exception as e:
-        print("CREATE WALLET ERROR:", repr(e))
+        print(
+            "CREATE WALLET ERROR:",
+            repr(e)
+        )
 
         return jsonify({
             "error": {
@@ -103,11 +196,10 @@ def create_wallet():
         }), 400
 
 
-# --------------------------------------------------
-# UPDATE WALLET
-# --------------------------------------------------
-
-@finance_bp.route("/wallets/<uuid:wallet_id>", methods=["PATCH"])
+@finance_bp.route(
+    "/wallets/<uuid:wallet_id>",
+    methods=["PATCH"]
+)
 @require_auth
 def update_wallet(wallet_id):
     try:
@@ -120,7 +212,10 @@ def update_wallet(wallet_id):
         wallet = service.update_wallet(
             wallet_id=wallet_id,
             user_id=g.user_id,
-            name=validated_data.get("name", MISSING)
+            name=validated_data.get(
+                "name",
+                MISSING
+            )
         )
 
         return jsonify({
@@ -128,7 +223,10 @@ def update_wallet(wallet_id):
         }), 200
 
     except Exception as e:
-        print("UPDATE WALLET ERROR:", repr(e))
+        print(
+            "UPDATE WALLET ERROR:",
+            repr(e)
+        )
 
         return jsonify({
             "error": {
@@ -137,11 +235,10 @@ def update_wallet(wallet_id):
         }), 400
 
 
-# --------------------------------------------------
-# DELETE WALLET
-# --------------------------------------------------
-
-@finance_bp.route("/wallets/<uuid:wallet_id>", methods=["DELETE"])
+@finance_bp.route(
+    "/wallets/<uuid:wallet_id>",
+    methods=["DELETE"]
+)
 @require_auth
 def delete_wallet(wallet_id):
     try:
@@ -159,7 +256,10 @@ def delete_wallet(wallet_id):
         }), 200
 
     except Exception as e:
-        print("DELETE WALLET ERROR:", repr(e))
+        print(
+            "DELETE WALLET ERROR:",
+            repr(e)
+        )
 
         return jsonify({
             "error": {
@@ -171,10 +271,6 @@ def delete_wallet(wallet_id):
 # ==================================================
 # CATEGORY ROUTES
 # ==================================================
-
-# --------------------------------------------------
-# GET ALL CATEGORIES
-# --------------------------------------------------
 
 @finance_bp.route("/categories", methods=["GET"])
 @require_auth
@@ -193,7 +289,10 @@ def get_categories():
         }), 200
 
     except Exception as e:
-        print("GET CATEGORIES ERROR:", repr(e))
+        print(
+            "GET CATEGORIES ERROR:",
+            repr(e)
+        )
 
         return jsonify({
             "error": {
@@ -201,10 +300,6 @@ def get_categories():
             }
         }), 400
 
-
-# --------------------------------------------------
-# CREATE CATEGORY
-# --------------------------------------------------
 
 @finance_bp.route("/categories", methods=["POST"])
 @require_auth
@@ -226,7 +321,10 @@ def create_category():
         }), 201
 
     except Exception as e:
-        print("CREATE CATEGORY ERROR:", repr(e))
+        print(
+            "CREATE CATEGORY ERROR:",
+            repr(e)
+        )
 
         return jsonify({
             "error": {
@@ -235,11 +333,10 @@ def create_category():
         }), 400
 
 
-# --------------------------------------------------
-# GET SINGLE CATEGORY
-# --------------------------------------------------
-
-@finance_bp.route("/categories/<uuid:category_id>", methods=["GET"])
+@finance_bp.route(
+    "/categories/<uuid:category_id>",
+    methods=["GET"]
+)
 @require_auth
 def get_category(category_id):
     try:
@@ -255,7 +352,10 @@ def get_category(category_id):
         }), 200
 
     except Exception as e:
-        print("GET CATEGORY ERROR:", repr(e))
+        print(
+            "GET CATEGORY ERROR:",
+            repr(e)
+        )
 
         return jsonify({
             "error": {
@@ -264,11 +364,10 @@ def get_category(category_id):
         }), 400
 
 
-# --------------------------------------------------
-# UPDATE CATEGORY
-# --------------------------------------------------
-
-@finance_bp.route("/categories/<uuid:category_id>", methods=["PATCH"])
+@finance_bp.route(
+    "/categories/<uuid:category_id>",
+    methods=["PATCH"]
+)
 @require_auth
 def update_category(category_id):
     try:
@@ -281,7 +380,10 @@ def update_category(category_id):
         category = service.update_category(
             category_id=category_id,
             user_id=g.user_id,
-            name=validated_data.get("name", MISSING)
+            name=validated_data.get(
+                "name",
+                MISSING
+            )
         )
 
         return jsonify({
@@ -289,7 +391,10 @@ def update_category(category_id):
         }), 200
 
     except Exception as e:
-        print("UPDATE CATEGORY ERROR:", repr(e))
+        print(
+            "UPDATE CATEGORY ERROR:",
+            repr(e)
+        )
 
         return jsonify({
             "error": {
@@ -298,11 +403,10 @@ def update_category(category_id):
         }), 400
 
 
-# --------------------------------------------------
-# DELETE CATEGORY
-# --------------------------------------------------
-
-@finance_bp.route("/categories/<uuid:category_id>", methods=["DELETE"])
+@finance_bp.route(
+    "/categories/<uuid:category_id>",
+    methods=["DELETE"]
+)
 @require_auth
 def delete_category(category_id):
     try:
@@ -320,7 +424,10 @@ def delete_category(category_id):
         }), 200
 
     except Exception as e:
-        print("DELETE CATEGORY ERROR:", repr(e))
+        print(
+            "DELETE CATEGORY ERROR:",
+            repr(e)
+        )
 
         return jsonify({
             "error": {
@@ -330,12 +437,8 @@ def delete_category(category_id):
 
 
 # ==================================================
-# DASHBOARD ROUTES
+# DASHBOARD SUMMARY
 # ==================================================
-
-# --------------------------------------------------
-# GET DASHBOARD SUMMARY
-# --------------------------------------------------
 
 @finance_bp.route("/summary", methods=["GET"])
 @require_auth
@@ -367,7 +470,10 @@ def get_dashboard_summary():
         }), 200
 
     except Exception as e:
-        print("GET DASHBOARD SUMMARY ERROR:", repr(e))
+        print(
+            "GET DASHBOARD SUMMARY ERROR:",
+            repr(e)
+        )
 
         return jsonify({
             "error": {
@@ -380,50 +486,29 @@ def get_dashboard_summary():
 # GENERAL FINANCIAL ANALYTICS
 # ==================================================
 
-# --------------------------------------------------
-# GET FINANCIAL ANALYTICS
-# --------------------------------------------------
-
 @finance_bp.route("/analytics", methods=["GET"])
 @require_auth
 def get_financial_analytics():
-    """
-    Returns:
-
-    - Total income
-    - Total expenses
-    - Net balance
-    - Savings rate
-    - Monthly income vs expenses
-    - Spending by category
-    """
-
     try:
         transaction_service = TransactionService()
         category_service = CategoryService()
 
-        # Get current user's transactions
-        transactions = transaction_service.get_all_transactions(
-            user_id=g.user_id
+        transactions = (
+            transaction_service.get_all_transactions(
+                user_id=g.user_id
+            )
         )
 
-        # Get current user's categories
-        categories = category_service.get_all_categories(
-            user_id=g.user_id
+        categories = (
+            category_service.get_all_categories(
+                user_id=g.user_id
+            )
         )
-
-        # --------------------------------------------------
-        # CATEGORY NAME MAPPING
-        # --------------------------------------------------
 
         category_map = {
             str(category.id): category.name
             for category in categories
         }
-
-        # --------------------------------------------------
-        # INITIAL VALUES
-        # --------------------------------------------------
 
         total_income = Decimal("0.00")
         total_expenses = Decimal("0.00")
@@ -439,10 +524,6 @@ def get_financial_analytics():
             lambda: Decimal("0.00")
         )
 
-        # --------------------------------------------------
-        # PROCESS TRANSACTIONS
-        # --------------------------------------------------
-
         for transaction in transactions:
             if not transaction.amount:
                 continue
@@ -453,7 +534,6 @@ def get_financial_analytics():
 
             transaction_type = transaction.type
 
-            # Convert Enum to its value
             if hasattr(transaction_type, "value"):
                 transaction_type = transaction_type.value
 
@@ -466,12 +546,10 @@ def get_financial_analytics():
             if not transaction_date:
                 continue
 
-            # Month key for sorting
             month_key = transaction_date.strftime(
                 "%Y-%m"
             )
 
-            # Income transaction
             if transaction_type == "INCOME":
                 total_income += amount
 
@@ -479,7 +557,6 @@ def get_financial_analytics():
                     month_key
                 ]["income"] += amount
 
-            # Expense transaction
             elif transaction_type == "EXPENSE":
                 total_expenses += amount
 
@@ -502,17 +579,9 @@ def get_financial_analytics():
                     category_name
                 ] += amount
 
-        # --------------------------------------------------
-        # NET BALANCE
-        # --------------------------------------------------
-
         net_balance = (
             total_income - total_expenses
         )
-
-        # --------------------------------------------------
-        # SAVINGS RATE
-        # --------------------------------------------------
 
         if total_income > Decimal("0.00"):
             savings_rate = (
@@ -520,10 +589,6 @@ def get_financial_analytics():
             ) * Decimal("100")
         else:
             savings_rate = Decimal("0.00")
-
-        # --------------------------------------------------
-        # MONTHLY DATA RESPONSE
-        # --------------------------------------------------
 
         monthly = []
 
@@ -540,10 +605,6 @@ def get_financial_analytics():
                 )
             })
 
-        # --------------------------------------------------
-        # CATEGORY DATA RESPONSE
-        # --------------------------------------------------
-
         categories_response = [
             {
                 "name": category_name,
@@ -555,10 +616,6 @@ def get_financial_analytics():
                 reverse=True
             )
         ]
-
-        # --------------------------------------------------
-        # FINAL RESPONSE
-        # --------------------------------------------------
 
         return jsonify({
             "data": {
@@ -597,10 +654,6 @@ def get_financial_analytics():
 # TRANSACTION ROUTES
 # ==================================================
 
-# --------------------------------------------------
-# GET ALL TRANSACTIONS
-# --------------------------------------------------
-
 @finance_bp.route("/transactions", methods=["GET"])
 @require_auth
 def get_transactions():
@@ -611,10 +664,11 @@ def get_transactions():
             user_id=g.user_id
         )
 
-        # Latest transactions first
         transactions = sorted(
             transactions,
-            key=lambda txn: txn.transaction_date,
+            key=lambda txn: txn.transaction_date
+            if txn.transaction_date
+            else datetime.min,
             reverse=True
         )
 
@@ -623,7 +677,6 @@ def get_transactions():
         for txn in transactions:
             transaction_type = txn.type
 
-            # Convert Enum to string
             if hasattr(transaction_type, "value"):
                 transaction_type = transaction_type.value
 
@@ -671,10 +724,6 @@ def get_transactions():
         }), 400
 
 
-# --------------------------------------------------
-# CREATE TRANSACTION
-# --------------------------------------------------
-
 @finance_bp.route("/transactions", methods=["POST"])
 @require_auth
 def create_transaction():
@@ -710,10 +759,6 @@ def create_transaction():
             }
         }), 400
 
-
-# --------------------------------------------------
-# UPDATE TRANSACTION
-# --------------------------------------------------
 
 @finance_bp.route(
     "/transactions/<uuid:txn_id>",
@@ -755,10 +800,6 @@ def update_transaction(txn_id):
         }), 400
 
 
-# --------------------------------------------------
-# DELETE TRANSACTION
-# --------------------------------------------------
-
 @finance_bp.route(
     "/transactions/<uuid:txn_id>",
     methods=["DELETE"]
@@ -796,10 +837,6 @@ def delete_transaction(txn_id):
 # BUDGET ROUTES
 # ==================================================
 
-# --------------------------------------------------
-# GET ALL BUDGETS
-# --------------------------------------------------
-
 @finance_bp.route("/budgets", methods=["GET"])
 @require_auth
 def get_budgets():
@@ -828,10 +865,6 @@ def get_budgets():
             }
         }), 400
 
-
-# --------------------------------------------------
-# CREATE BUDGET
-# --------------------------------------------------
 
 @finance_bp.route("/budgets", methods=["POST"])
 @require_auth
@@ -868,10 +901,6 @@ def create_budget():
             }
         }), 400
 
-
-# --------------------------------------------------
-# UPDATE BUDGET
-# --------------------------------------------------
 
 @finance_bp.route(
     "/budgets/<uuid:budget_id>",
@@ -913,10 +942,6 @@ def update_budget(budget_id):
         }), 400
 
 
-# --------------------------------------------------
-# DELETE BUDGET
-# --------------------------------------------------
-
 @finance_bp.route(
     "/budgets/<uuid:budget_id>",
     methods=["DELETE"]
@@ -948,3 +973,642 @@ def delete_budget(budget_id):
                 "message": str(e)
             }
         }), 400
+
+
+# ==================================================
+# PDF FINANCIAL REPORT
+# ==================================================
+
+@finance_bp.route(
+    "/reports/transactions/pdf",
+    methods=["GET"]
+)
+@require_auth
+def download_transactions_pdf():
+    try:
+        # --------------------------------------------------
+        # READ DATE FILTERS
+        # --------------------------------------------------
+
+        start_date_text = request.args.get(
+            "start_date",
+            ""
+        ).strip()
+
+        end_date_text = request.args.get(
+            "end_date",
+            ""
+        ).strip()
+
+        if not start_date_text or not end_date_text:
+            return jsonify({
+                "error": {
+                    "message": (
+                        "start_date and end_date are required."
+                    )
+                }
+            }), 400
+
+        try:
+            start_date = datetime.strptime(
+                start_date_text,
+                "%Y-%m-%d"
+            ).date()
+
+            end_date = datetime.strptime(
+                end_date_text,
+                "%Y-%m-%d"
+            ).date()
+
+        except ValueError:
+            return jsonify({
+                "error": {
+                    "message": (
+                        "Date format must be YYYY-MM-DD."
+                    )
+                }
+            }), 400
+
+        if start_date > end_date:
+            return jsonify({
+                "error": {
+                    "message": (
+                        "Start date cannot be greater than end date."
+                    )
+                }
+            }), 400
+
+        # --------------------------------------------------
+        # LOAD SERVICES
+        # --------------------------------------------------
+
+        transaction_service = TransactionService()
+        category_service = CategoryService()
+        wallet_service = WalletService()
+
+        all_transactions = (
+            transaction_service.get_all_transactions(
+                user_id=g.user_id
+            )
+        )
+
+        categories = (
+            category_service.get_all_categories(
+                user_id=g.user_id
+            )
+        )
+
+        wallets = (
+            wallet_service.get_all_wallets(
+                user_id=g.user_id
+            )
+        )
+
+        # --------------------------------------------------
+        # CREATE LOOKUP MAPS
+        # --------------------------------------------------
+
+        category_map = {
+            str(category.id): category.name
+            for category in categories
+        }
+
+        wallet_map = {
+            str(wallet.id): wallet.name
+            for wallet in wallets
+        }
+
+        # --------------------------------------------------
+        # FILTER TRANSACTIONS BY DATE
+        # --------------------------------------------------
+
+        filtered_transactions = []
+
+        for transaction in all_transactions:
+            transaction_date = transaction.transaction_date
+
+            if not transaction_date:
+                continue
+
+            if hasattr(transaction_date, "date"):
+                transaction_day = transaction_date.date()
+            else:
+                transaction_day = transaction_date
+
+            if start_date <= transaction_day <= end_date:
+                filtered_transactions.append(transaction)
+
+        filtered_transactions.sort(
+            key=lambda transaction: (
+                transaction.transaction_date
+                if transaction.transaction_date
+                else datetime.min
+            ),
+            reverse=True
+        )
+
+        # --------------------------------------------------
+        # CALCULATE TOTALS
+        # --------------------------------------------------
+
+        total_income = Decimal("0.00")
+        total_expenses = Decimal("0.00")
+
+        for transaction in filtered_transactions:
+            amount = Decimal(
+                str(transaction.amount or 0)
+            )
+
+            transaction_type = transaction.type
+
+            if hasattr(transaction_type, "value"):
+                transaction_type = transaction_type.value
+
+            transaction_type = str(
+                transaction_type
+            ).upper()
+
+            if transaction_type == "INCOME":
+                total_income += amount
+
+            elif transaction_type == "EXPENSE":
+                total_expenses += amount
+
+        net_balance = (
+            total_income - total_expenses
+        )
+
+        # --------------------------------------------------
+        # CREATE PDF DOCUMENT
+        # --------------------------------------------------
+
+        pdf_buffer = BytesIO()
+
+        document = SimpleDocTemplate(
+            pdf_buffer,
+            pagesize=landscape(A4),
+            rightMargin=12 * mm,
+            leftMargin=12 * mm,
+            topMargin=12 * mm,
+            bottomMargin=12 * mm
+        )
+
+        # --------------------------------------------------
+        # PDF STYLES
+        # --------------------------------------------------
+
+        styles = getSampleStyleSheet()
+
+        title_style = ParagraphStyle(
+            "ReportTitle",
+            parent=styles["Title"],
+            fontName=REPORT_FONT_NAME,
+            fontSize=20,
+            leading=24,
+            alignment=TA_CENTER,
+            spaceAfter=8
+        )
+
+        subtitle_style = ParagraphStyle(
+            "ReportSubtitle",
+            parent=styles["Normal"],
+            fontName=REPORT_FONT_NAME,
+            fontSize=10,
+            leading=14,
+            alignment=TA_CENTER,
+            textColor=colors.grey,
+            spaceAfter=14
+        )
+
+        normal_style = ParagraphStyle(
+            "ReportNormal",
+            parent=styles["Normal"],
+            fontName=REPORT_FONT_NAME,
+            fontSize=8,
+            leading=10
+        )
+
+        right_style = ParagraphStyle(
+            "ReportRight",
+            parent=normal_style,
+            fontName=REPORT_FONT_NAME,
+            alignment=TA_RIGHT
+        )
+
+        # --------------------------------------------------
+        # PDF ELEMENTS
+        # --------------------------------------------------
+
+        elements = []
+
+        elements.append(
+            Paragraph(
+                "TrackWise Financial Report",
+                title_style
+            )
+        )
+
+        elements.append(
+            Paragraph(
+                (
+                    f"Report Period: "
+                    f"{start_date.strftime('%d-%m-%Y')} "
+                    f"to "
+                    f"{end_date.strftime('%d-%m-%Y')}"
+                ),
+                subtitle_style
+            )
+        )
+
+        # --------------------------------------------------
+        # SUMMARY TABLE
+        # --------------------------------------------------
+
+        summary_data = [
+            [
+                Paragraph(
+                    "<b>Total Income</b>",
+                    normal_style
+                ),
+                Paragraph(
+                    "<b>Total Expenses</b>",
+                    normal_style
+                ),
+                Paragraph(
+                    "<b>Net Balance</b>",
+                    normal_style
+                ),
+                Paragraph(
+                    "<b>Total Transactions</b>",
+                    normal_style
+                )
+            ],
+            [
+                Paragraph(
+                    (
+                        f"{REPORT_CURRENCY_PREFIX}"
+                        f"{total_income:,.2f}"
+                    ),
+                    normal_style
+                ),
+                Paragraph(
+                    (
+                        f"{REPORT_CURRENCY_PREFIX}"
+                        f"{total_expenses:,.2f}"
+                    ),
+                    normal_style
+                ),
+                Paragraph(
+                    (
+                        f"{REPORT_CURRENCY_PREFIX}"
+                        f"{net_balance:,.2f}"
+                    ),
+                    normal_style
+                ),
+                Paragraph(
+                    str(len(filtered_transactions)),
+                    normal_style
+                )
+            ]
+        ]
+
+        summary_table = Table(
+            summary_data,
+            colWidths=[
+                65 * mm,
+                65 * mm,
+                65 * mm,
+                65 * mm
+            ]
+        )
+
+        summary_table.setStyle(
+            TableStyle([
+                (
+                    "BACKGROUND",
+                    (0, 0),
+                    (-1, 0),
+                    colors.HexColor("#E8F0FE")
+                ),
+                (
+                    "TEXTCOLOR",
+                    (0, 0),
+                    (-1, 0),
+                    colors.HexColor("#1F2937")
+                ),
+                (
+                    "FONTNAME",
+                    (0, 0),
+                    (-1, -1),
+                    REPORT_FONT_NAME
+                ),
+                (
+                    "GRID",
+                    (0, 0),
+                    (-1, -1),
+                    0.5,
+                    colors.HexColor("#B8C2CC")
+                ),
+                (
+                    "ALIGN",
+                    (0, 0),
+                    (-1, -1),
+                    "CENTER"
+                ),
+                (
+                    "VALIGN",
+                    (0, 0),
+                    (-1, -1),
+                    "MIDDLE"
+                ),
+                (
+                    "TOPPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    8
+                ),
+                (
+                    "BOTTOMPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    8
+                )
+            ])
+        )
+
+        elements.append(summary_table)
+        elements.append(Spacer(1, 14))
+
+        # --------------------------------------------------
+        # TRANSACTIONS TABLE HEADER
+        # --------------------------------------------------
+
+        table_header = [
+            Paragraph(
+                "<b>Date</b>",
+                normal_style
+            ),
+            Paragraph(
+                "<b>Type</b>",
+                normal_style
+            ),
+            Paragraph(
+                "<b>Description</b>",
+                normal_style
+            ),
+            Paragraph(
+                "<b>Wallet</b>",
+                normal_style
+            ),
+            Paragraph(
+                "<b>Category</b>",
+                normal_style
+            ),
+            Paragraph(
+                "<b>Amount</b>",
+                right_style
+            )
+        ]
+
+        table_rows = [
+            table_header
+        ]
+
+        # --------------------------------------------------
+        # TRANSACTIONS TABLE ROWS
+        # --------------------------------------------------
+
+        for transaction in filtered_transactions:
+            transaction_date = transaction.transaction_date
+
+            if hasattr(transaction_date, "strftime"):
+                formatted_date = transaction_date.strftime(
+                    "%d-%m-%Y"
+                )
+            else:
+                formatted_date = str(transaction_date)
+
+            transaction_type = transaction.type
+
+            if hasattr(transaction_type, "value"):
+                transaction_type = transaction_type.value
+
+            transaction_type = str(
+                transaction_type
+            ).upper().capitalize()
+
+            description = (
+                transaction.description
+                if transaction.description
+                else "-"
+            )
+
+            wallet_name = (
+                wallet_map.get(
+                    str(transaction.wallet_id),
+                    "-"
+                )
+                if getattr(
+                    transaction,
+                    "wallet_id",
+                    None
+                )
+                else "-"
+            )
+
+            category_name = (
+                category_map.get(
+                    str(transaction.category_id),
+                    "-"
+                )
+                if getattr(
+                    transaction,
+                    "category_id",
+                    None
+                )
+                else "-"
+            )
+
+            amount = Decimal(
+                str(transaction.amount or 0)
+            )
+
+            table_rows.append([
+                Paragraph(
+                    escape(formatted_date),
+                    normal_style
+                ),
+                Paragraph(
+                    escape(transaction_type),
+                    normal_style
+                ),
+                Paragraph(
+                    escape(str(description)),
+                    normal_style
+                ),
+                Paragraph(
+                    escape(str(wallet_name)),
+                    normal_style
+                ),
+                Paragraph(
+                    escape(str(category_name)),
+                    normal_style
+                ),
+                Paragraph(
+                    (
+                        f"{REPORT_CURRENCY_PREFIX}"
+                        f"{amount:,.2f}"
+                    ),
+                    right_style
+                )
+            ])
+
+        # --------------------------------------------------
+        # EMPTY TRANSACTION MESSAGE
+        # --------------------------------------------------
+
+        if not filtered_transactions:
+            table_rows.append([
+                Paragraph(
+                    "No transactions found for the selected date range.",
+                    normal_style
+                ),
+                "",
+                "",
+                "",
+                "",
+                ""
+            ])
+
+        # --------------------------------------------------
+        # CREATE TRANSACTIONS TABLE
+        # --------------------------------------------------
+
+        transactions_table = Table(
+            table_rows,
+            colWidths=[
+                28 * mm,
+                25 * mm,
+                75 * mm,
+                45 * mm,
+                45 * mm,
+                38 * mm
+            ],
+            repeatRows=1
+        )
+
+        # --------------------------------------------------
+        # TRANSACTIONS TABLE STYLING
+        # --------------------------------------------------
+
+        table_style_commands = [
+            (
+                "BACKGROUND",
+                (0, 0),
+                (-1, 0),
+                colors.HexColor("#DCE6F1")
+            ),
+            (
+                "TEXTCOLOR",
+                (0, 0),
+                (-1, 0),
+                colors.HexColor("#1F2937")
+            ),
+            (
+                "FONTNAME",
+                (0, 0),
+                (-1, 0),
+                REPORT_FONT_NAME
+            ),
+            (
+                "GRID",
+                (0, 0),
+                (-1, -1),
+                0.4,
+                colors.HexColor("#C7CDD4")
+            ),
+            (
+                "VALIGN",
+                (0, 0),
+                (-1, -1),
+                "MIDDLE"
+            ),
+            (
+                "TOPPADDING",
+                (0, 0),
+                (-1, -1),
+                6
+            ),
+            (
+                "BOTTOMPADDING",
+                (0, 0),
+                (-1, -1),
+                6
+            ),
+            (
+                "ALIGN",
+                (-1, 1),
+                (-1, -1),
+                "RIGHT"
+            )
+        ]
+
+        if not filtered_transactions:
+            table_style_commands.append(
+                (
+                    "SPAN",
+                    (0, 1),
+                    (-1, 1)
+                )
+            )
+
+        transactions_table.setStyle(
+            TableStyle(table_style_commands)
+        )
+
+        elements.append(transactions_table)
+        elements.append(Spacer(1, 12))
+
+        elements.append(
+            Paragraph(
+                "Generated by TrackWise",
+                subtitle_style
+            )
+        )
+
+        # --------------------------------------------------
+        # BUILD PDF
+        # --------------------------------------------------
+
+        document.build(elements)
+
+        pdf_buffer.seek(0)
+
+        filename = (
+            f"trackwise_report_"
+            f"{start_date_text}_"
+            f"{end_date_text}.pdf"
+        )
+
+        return send_file(
+            pdf_buffer,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=filename,
+            max_age=0
+        )
+
+    except Exception as e:
+        print(
+            "DOWNLOAD PDF REPORT ERROR:",
+            repr(e)
+        )
+
+        return jsonify({
+            "error": {
+                "message": (
+                    f"Unable to generate PDF report: {str(e)}"
+                )
+            }
+        }), 500
+
