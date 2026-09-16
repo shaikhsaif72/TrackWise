@@ -39,8 +39,56 @@ export default function Transactions() {
   });
 
   // ---------------------------------------------
+  // CATEGORY HELPERS
+  // ---------------------------------------------
+
+  const getCategoryLabel = (category) => {
+    return String(
+      category?.name ||
+        category?.title ||
+        category?.category_name ||
+        ''
+    ).trim();
+  };
+
+  const normalizeCategoryKey = (categoryName) => {
+    return String(categoryName || '')
+      .normalize('NFKC')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  };
+
+  const getUniqueCategories = (categoryList) => {
+    if (!Array.isArray(categoryList)) {
+      return [];
+    }
+
+    const uniqueMap = new Map();
+
+    categoryList.forEach((category) => {
+      const categoryLabel = getCategoryLabel(category);
+      const categoryKey = normalizeCategoryKey(categoryLabel);
+
+      // Ignore categories without a valid name
+      if (!categoryKey) {
+        return;
+      }
+
+      // Keep only the first category with the same normalized name
+      if (!uniqueMap.has(categoryKey)) {
+        uniqueMap.set(categoryKey, category);
+      }
+    });
+
+    return Array.from(uniqueMap.values());
+  };
+
+  // ---------------------------------------------
   // LOAD DATA
   // ---------------------------------------------
+
   const loadData = async () => {
     try {
       setLoading(true);
@@ -68,22 +116,8 @@ export default function Transactions() {
           : []
       );
 
-      // Remove duplicate categories by category name
-      const uniqueCategories = Array.from(
-        new Map(
-          (Array.isArray(categoryData) ? categoryData : []).map(
-            (category) => {
-              const categoryName = String(
-                category.name || category.title || ''
-              )
-                .trim()
-                .toLowerCase();
-
-              return [categoryName, category];
-            }
-          )
-        ).values()
-      );
+      // Strong duplicate removal for categories
+      const uniqueCategories = getUniqueCategories(categoryData);
 
       setCategories(uniqueCategories);
     } catch (err) {
@@ -105,6 +139,7 @@ export default function Transactions() {
   // ---------------------------------------------
   // INPUT CHANGE
   // ---------------------------------------------
+
   const handleChange = (event) => {
     const { name, value } = event.target;
 
@@ -117,6 +152,7 @@ export default function Transactions() {
   // ---------------------------------------------
   // OPEN ADD MODAL
   // ---------------------------------------------
+
   const handleOpenAddModal = () => {
     setEditingTransaction(null);
     setFormError('');
@@ -136,6 +172,7 @@ export default function Transactions() {
   // ---------------------------------------------
   // OPEN EDIT MODAL
   // ---------------------------------------------
+
   const handleOpenEditModal = (transaction) => {
     setEditingTransaction(transaction);
     setFormError('');
@@ -173,6 +210,7 @@ export default function Transactions() {
   // ---------------------------------------------
   // CLOSE ADD/EDIT MODAL
   // ---------------------------------------------
+
   const handleCloseModal = () => {
     if (!saving) {
       setIsModalOpen(false);
@@ -184,6 +222,7 @@ export default function Transactions() {
   // ---------------------------------------------
   // CREATE OR UPDATE TRANSACTION
   // ---------------------------------------------
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setFormError('');
@@ -253,6 +292,7 @@ export default function Transactions() {
   // ---------------------------------------------
   // DELETE TRANSACTION
   // ---------------------------------------------
+
   const handleDelete = async (transactionId) => {
     const confirmed = window.confirm(
       'Are you sure you want to delete this transaction?'
@@ -280,6 +320,7 @@ export default function Transactions() {
   // ---------------------------------------------
   // VIEW TRANSACTION DETAILS
   // ---------------------------------------------
+
   const handleViewDetails = (transaction) => {
     setSelectedTransaction(transaction);
     setIsViewModalOpen(true);
@@ -293,12 +334,13 @@ export default function Transactions() {
   // ---------------------------------------------
   // GET CATEGORY NAME
   // ---------------------------------------------
+
   const getCategoryName = (categoryId) => {
     const category = categories.find(
       (item) => String(item.id) === String(categoryId)
     );
 
-    return category?.name || category?.title || '-';
+    return getCategoryLabel(category) || '-';
   };
 
   if (loading) {
@@ -470,11 +512,17 @@ export default function Transactions() {
           <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
             {/* MODAL HEADER */}
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <h3 className="text-lg font-bold text-slate-800">
-                {editingTransaction
-                  ? 'Edit Transaction'
-                  : 'Add Transaction'}
-              </h3>
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">
+                  {editingTransaction
+                    ? 'Edit Transaction'
+                    : 'Add Transaction'}
+                </h3>
+
+                <p className="mt-1 text-xs text-gray-500">
+                  Enter the details of your financial activity.
+                </p>
+              </div>
 
               <button
                 type="button"
@@ -568,12 +616,13 @@ export default function Transactions() {
                     Select Category
                   </option>
 
-                  {categories.map((category) => (
+                  {/* Extra safety: remove duplicates during rendering too */}
+                  {getUniqueCategories(categories).map((category) => (
                     <option
                       key={category.id}
                       value={category.id}
                     >
-                      {category.name || category.title}
+                      {getCategoryLabel(category)}
                     </option>
                   ))}
                 </select>

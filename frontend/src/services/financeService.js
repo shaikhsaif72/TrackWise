@@ -111,60 +111,32 @@ export const financeService = {
   },
 
   // ==================================================
-  // ANALYTICS
-  // ==================================================
+// ANALYTICS
+// ==================================================
 
-  getAnalytics: async () => {
-    try {
-      return extractData(
-        await api.get('/api/v1/finance/analytics')
-      );
-    } catch (err) {
-      console.warn(
-        'Analytics endpoint missing, using demo data'
-      );
+getAnalytics: async (period = 'monthly') => {
+  try {
+    const response = await api.get(
+      '/api/v1/finance/analytics',
+      {
+        params: {
+          period
+        }
+      }
+    );
 
-      return {
-        monthly: [
-          {
-            name: 'Jan',
-            income: 4000,
-            expense: 2400
-          },
-          {
-            name: 'Feb',
-            income: 3000,
-            expense: 1398
-          },
-          {
-            name: 'Mar',
-            income: 2000,
-            expense: 9800
-          },
-          {
-            name: 'Apr',
-            income: 2780,
-            expense: 3908
-          }
-        ],
-        categories: [
-          {
-            name: 'Food',
-            value: 400
-          },
-          {
-            name: 'Rent',
-            value: 1200
-          },
-          {
-            name: 'Transport',
-            value: 300
-          }
-        ],
-        isDemo: true
-      };
-    }
-  },
+    console.log(`Analytics API Response for ${period}:`, response.data);
+
+    return extractData(response);
+  } catch (err) {
+    console.error(
+      `Analytics API Error for ${period}:`,
+      err?.response?.data || err.message
+    );
+
+    throw err;
+  }
+},
 
   // ==================================================
   // TRANSACTIONS

@@ -310,6 +310,9 @@ class TransactionService:
     # ==================================================
     # DELETE TRANSACTION
     # ==================================================
+        # ==================================================
+    # DELETE TRANSACTION
+    # ==================================================
     def delete_transaction(
         self,
         txn_id: uuid.UUID,
@@ -321,17 +324,32 @@ class TransactionService:
             user_id
         )
 
-        wallet = self.wallet_service.get_wallet(
-            txn.wallet_id,
-            user_id
-        )
+        # Try to find the wallet.
+        # If wallet is already missing, transaction can
+        # still be soft-deleted safely.
+        wallet = None
 
-        # Reverse transaction effect
-        if txn.type == TransactionType.INCOME:
-            wallet.balance -= txn.amount
-        else:
-            wallet.balance += txn.amount
+        if txn.wallet_id:
+            try:
+                wallet = self.wallet_service.get_wallet(
+                    txn.wallet_id,
+                    user_id
+                )
+            except Exception as wallet_error:
+                print(
+                    "DELETE TRANSACTION WALLET WARNING:",
+                    repr(wallet_error)
+                )
+                wallet = None
 
+        # Reverse transaction effect only when wallet exists.
+        if wallet:
+            if txn.type == TransactionType.INCOME:
+                wallet.balance -= txn.amount
+            else:
+                wallet.balance += txn.amount
+
+        # Soft delete transaction
         txn.deleted_at = utc_now()
 
         try:
@@ -339,7 +357,10 @@ class TransactionService:
 
         except Exception as e:
             db.session.rollback()
-            print("DELETE TRANSACTION ERROR:", repr(e))
+            print(
+                "DELETE TRANSACTION ERROR:",
+                repr(e)
+            )
 
             raise APIException(
                 "Failed to delete transaction.",
