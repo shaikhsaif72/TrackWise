@@ -1,5 +1,5 @@
 import uuid
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from datetime import datetime
 from typing import Sequence
 
@@ -39,6 +39,18 @@ class TransactionService:
         description: str = None
     ) -> Transaction:
 
+        # --------------------------------------------------
+        # Validate transaction type
+        # --------------------------------------------------
+        if isinstance(type, str):
+            try:
+                type = TransactionType(type.upper())
+            except ValueError:
+                raise APIException(
+                    "Invalid transaction type.",
+                    status_code=400
+                )
+
         if type not in (
             TransactionType.INCOME,
             TransactionType.EXPENSE
@@ -48,7 +60,16 @@ class TransactionService:
                 status_code=400
             )
 
-        amount_dec = Decimal(str(amount))
+        # --------------------------------------------------
+        # Validate amount
+        # --------------------------------------------------
+        try:
+            amount_dec = Decimal(str(amount))
+        except (InvalidOperation, TypeError, ValueError):
+            raise APIException(
+                "Invalid transaction amount.",
+                status_code=400
+            )
 
         if amount_dec <= Decimal("0.00"):
             raise APIException(
@@ -56,17 +77,45 @@ class TransactionService:
                 status_code=400
             )
 
+        # --------------------------------------------------
+        # Get wallet
+        # --------------------------------------------------
         wallet = self.wallet_service.get_wallet(
             wallet_id,
             user_id
         )
 
+        # --------------------------------------------------
+        # Validate category
+        # --------------------------------------------------
         if category_id:
             self.category_service.get_category(
                 category_id,
                 user_id
             )
 
+        # --------------------------------------------------
+        # IMPORTANT:
+        # Prevent expense greater than wallet balance
+        # --------------------------------------------------
+        current_balance = Decimal(
+            str(wallet.balance or Decimal("0.00"))
+        )
+
+        if type == TransactionType.EXPENSE:
+
+            if amount_dec > current_balance:
+
+                raise APIException(
+                    "Insufficient wallet balance. "
+                    f"Available balance: {current_balance:.2f}. "
+                    f"Expense amount: {amount_dec:.2f}.",
+                    status_code=400
+                )
+
+        # --------------------------------------------------
+        # Create transaction
+        # --------------------------------------------------
         txn = Transaction(
             user_id=user_id,
             wallet_id=wallet_id,
@@ -77,20 +126,39 @@ class TransactionService:
             description=description
         )
 
+        # --------------------------------------------------
+        # Update wallet balance
+        # --------------------------------------------------
         if type == TransactionType.INCOME:
-            wallet.balance += amount_dec
-        else:
-            wallet.balance -= amount_dec
 
+            wallet.balance = (
+                current_balance + amount_dec
+            )
+
+        else:
+
+            wallet.balance = (
+                current_balance - amount_dec
+            )
+
+        # --------------------------------------------------
+        # Save transaction
+        # --------------------------------------------------
         self.txn_repo.add(txn)
 
         try:
+
             db.session.commit()
             return txn
 
         except Exception as e:
+
             db.session.rollback()
-            print("CREATE TRANSACTION ERROR:", repr(e))
+
+            print(
+                "CREATE TRANSACTION ERROR:",
+                repr(e)
+            )
 
             raise APIException(
                 "Failed to create transaction.",
@@ -147,6 +215,9 @@ class TransactionService:
             user_id
         )
 
+        # --------------------------------------------------
+        # Total wallet balance
+        # --------------------------------------------------
         total_balance = sum(
             (
                 Decimal(str(wallet.balance or 0))
@@ -155,6 +226,9 @@ class TransactionService:
             Decimal("0.00")
         )
 
+        # --------------------------------------------------
+        # Total income
+        # --------------------------------------------------
         total_income = sum(
             (
                 Decimal(str(txn.amount or 0))
@@ -164,6 +238,9 @@ class TransactionService:
             Decimal("0.00")
         )
 
+        # --------------------------------------------------
+        # Total expenses
+        # --------------------------------------------------
         total_expenses = sum(
             (
                 Decimal(str(txn.amount or 0))
@@ -173,7 +250,12 @@ class TransactionService:
             Decimal("0.00")
         )
 
-        net_savings = total_income - total_expenses
+        # --------------------------------------------------
+        # Net savings
+        # --------------------------------------------------
+        net_savings = (
+            total_income - total_expenses
+        )
 
         return {
             "totalBalance": total_balance,
@@ -199,11 +281,17 @@ class TransactionService:
         description=MISSING
     ) -> Transaction:
 
+        # --------------------------------------------------
+        # Get existing transaction
+        # --------------------------------------------------
         txn = self.get_transaction(
             txn_id,
             user_id
         )
 
+        # --------------------------------------------------
+        # Determine new wallet
+        # --------------------------------------------------
         new_wallet_id = (
             txn.wallet_id
             if wallet_id is MISSING
@@ -215,6 +303,9 @@ class TransactionService:
             user_id
         )
 
+        # --------------------------------------------------
+        # Determine new category
+        # --------------------------------------------------
         new_cat_id = (
             txn.category_id
             if category_id is MISSING
@@ -222,16 +313,34 @@ class TransactionService:
         )
 
         if new_cat_id is not None:
+
             self.category_service.get_category(
                 new_cat_id,
                 user_id
             )
 
+        # --------------------------------------------------
+        # Determine new transaction type
+        # --------------------------------------------------
         new_type = (
             txn.type
             if type is MISSING
             else type
         )
+
+        if isinstance(new_type, str):
+
+            try:
+                new_type = TransactionType(
+                    new_type.upper()
+                )
+
+            except ValueError:
+
+                raise APIException(
+                    "Invalid transaction type.",
+                    status_code=400
+                )
 
         if new_type not in (
             TransactionType.INCOME,
@@ -242,18 +351,39 @@ class TransactionService:
                 status_code=400
             )
 
-        new_amount = (
-            txn.amount
-            if amount is MISSING
-            else Decimal(str(amount))
-        )
+        # --------------------------------------------------
+        # Determine new amount
+        # --------------------------------------------------
+        if amount is MISSING:
+
+            new_amount = Decimal(
+                str(txn.amount)
+            )
+
+        else:
+
+            try:
+                new_amount = Decimal(
+                    str(amount)
+                )
+
+            except (InvalidOperation, TypeError, ValueError):
+
+                raise APIException(
+                    "Invalid transaction amount.",
+                    status_code=400
+                )
 
         if new_amount <= Decimal("0.00"):
+
             raise APIException(
                 "Transaction amount must be strictly positive.",
                 status_code=400
             )
 
+        # --------------------------------------------------
+        # Determine other values
+        # --------------------------------------------------
         new_date = (
             txn.transaction_date
             if transaction_date is MISSING
@@ -266,6 +396,9 @@ class TransactionService:
             else description
         )
 
+        # --------------------------------------------------
+        # Get old wallet
+        # --------------------------------------------------
         old_wallet = (
             self.wallet_service.get_wallet(
                 txn.wallet_id,
@@ -275,18 +408,125 @@ class TransactionService:
             else new_wallet
         )
 
-        # Reverse old transaction effect
+        old_wallet_balance = Decimal(
+            str(old_wallet.balance or Decimal("0.00"))
+        )
+
+        old_amount = Decimal(
+            str(txn.amount)
+        )
+
+        # --------------------------------------------------
+        # Calculate balance after removing old transaction
+        # --------------------------------------------------
         if txn.type == TransactionType.INCOME:
-            old_wallet.balance -= txn.amount
-        else:
-            old_wallet.balance += txn.amount
 
-        # Apply new transaction effect
-        if new_type == TransactionType.INCOME:
-            new_wallet.balance += new_amount
-        else:
-            new_wallet.balance -= new_amount
+            balance_after_reversal = (
+                old_wallet_balance - old_amount
+            )
 
+        else:
+
+            balance_after_reversal = (
+                old_wallet_balance + old_amount
+            )
+
+        # --------------------------------------------------
+        # Determine available balance for new expense
+        # --------------------------------------------------
+        if new_wallet_id == txn.wallet_id:
+
+            available_balance = (
+                balance_after_reversal
+            )
+
+        else:
+
+            available_balance = Decimal(
+                str(
+                    new_wallet.balance
+                    or Decimal("0.00")
+                )
+            )
+
+        # --------------------------------------------------
+        # IMPORTANT:
+        # Prevent update from creating negative balance
+        # --------------------------------------------------
+        if new_type == TransactionType.EXPENSE:
+
+            if new_amount > available_balance:
+
+                raise APIException(
+                    "Insufficient wallet balance. "
+                    f"Available balance: "
+                    f"{available_balance:.2f}. "
+                    f"Expense amount: "
+                    f"{new_amount:.2f}.",
+                    status_code=400
+                )
+
+        # --------------------------------------------------
+        # Apply wallet changes
+        # --------------------------------------------------
+        if new_wallet_id == txn.wallet_id:
+
+            # Reverse old transaction
+            old_wallet.balance = (
+                balance_after_reversal
+            )
+
+            # Apply new transaction
+            if new_type == TransactionType.INCOME:
+
+                old_wallet.balance = (
+                    old_wallet.balance
+                    + new_amount
+                )
+
+            else:
+
+                old_wallet.balance = (
+                    old_wallet.balance
+                    - new_amount
+                )
+
+        else:
+
+            # ----------------------------------------------
+            # Reverse old transaction from old wallet
+            # ----------------------------------------------
+            old_wallet.balance = (
+                balance_after_reversal
+            )
+
+            # ----------------------------------------------
+            # Apply new transaction to new wallet
+            # ----------------------------------------------
+            new_wallet_balance = Decimal(
+                str(
+                    new_wallet.balance
+                    or Decimal("0.00")
+                )
+            )
+
+            if new_type == TransactionType.INCOME:
+
+                new_wallet.balance = (
+                    new_wallet_balance
+                    + new_amount
+                )
+
+            else:
+
+                new_wallet.balance = (
+                    new_wallet_balance
+                    - new_amount
+                )
+
+        # --------------------------------------------------
+        # Update transaction object
+        # --------------------------------------------------
         txn.wallet_id = new_wallet_id
         txn.category_id = new_cat_id
         txn.type = new_type
@@ -294,13 +534,23 @@ class TransactionService:
         txn.transaction_date = new_date
         txn.description = new_desc
 
+        # --------------------------------------------------
+        # Save changes
+        # --------------------------------------------------
         try:
+
             db.session.commit()
+
             return txn
 
         except Exception as e:
+
             db.session.rollback()
-            print("UPDATE TRANSACTION ERROR:", repr(e))
+
+            print(
+                "UPDATE TRANSACTION ERROR:",
+                repr(e)
+            )
 
             raise APIException(
                 "Failed to update transaction.",
@@ -310,53 +560,89 @@ class TransactionService:
     # ==================================================
     # DELETE TRANSACTION
     # ==================================================
-        # ==================================================
-    # DELETE TRANSACTION
-    # ==================================================
     def delete_transaction(
         self,
         txn_id: uuid.UUID,
         user_id: uuid.UUID
     ) -> None:
 
+        # --------------------------------------------------
+        # Get transaction
+        # --------------------------------------------------
         txn = self.get_transaction(
             txn_id,
             user_id
         )
 
-        # Try to find the wallet.
-        # If wallet is already missing, transaction can
-        # still be soft-deleted safely.
+        # --------------------------------------------------
+        # Try to find wallet
+        # --------------------------------------------------
         wallet = None
 
         if txn.wallet_id:
+
             try:
+
                 wallet = self.wallet_service.get_wallet(
                     txn.wallet_id,
                     user_id
                 )
+
             except Exception as wallet_error:
+
                 print(
                     "DELETE TRANSACTION WALLET WARNING:",
                     repr(wallet_error)
                 )
+
                 wallet = None
 
-        # Reverse transaction effect only when wallet exists.
+        # --------------------------------------------------
+        # Reverse transaction effect
+        # --------------------------------------------------
         if wallet:
-            if txn.type == TransactionType.INCOME:
-                wallet.balance -= txn.amount
-            else:
-                wallet.balance += txn.amount
 
+            wallet_balance = Decimal(
+                str(
+                    wallet.balance
+                    or Decimal("0.00")
+                )
+            )
+
+            transaction_amount = Decimal(
+                str(txn.amount)
+            )
+
+            if txn.type == TransactionType.INCOME:
+
+                wallet.balance = (
+                    wallet_balance
+                    - transaction_amount
+                )
+
+            else:
+
+                wallet.balance = (
+                    wallet_balance
+                    + transaction_amount
+                )
+
+        # --------------------------------------------------
         # Soft delete transaction
+        # --------------------------------------------------
         txn.deleted_at = utc_now()
 
+        # --------------------------------------------------
+        # Save
+        # --------------------------------------------------
         try:
+
             db.session.commit()
 
         except Exception as e:
+
             db.session.rollback()
+
             print(
                 "DELETE TRANSACTION ERROR:",
                 repr(e)

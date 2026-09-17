@@ -430,6 +430,7 @@ def delete_category(category_id):
         )
 
         return jsonify({
+            
             "error": {
                 "message": str(e)
             }
