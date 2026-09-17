@@ -656,7 +656,7 @@ The core TrackWise modules have been implemented, including:
 
 ## Author
 
-**Saad Shaikh**
+**Saif Shaikh**
 
 B.Tech Computer Engineering Student
 
