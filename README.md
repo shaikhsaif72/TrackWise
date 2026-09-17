@@ -199,7 +199,7 @@ Before running TrackWise, make sure the following are installed:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/TrackWise.git
+https://github.com/shaikhsaif72/TrackWise.git
 ```
 
 Move into the project directory:
